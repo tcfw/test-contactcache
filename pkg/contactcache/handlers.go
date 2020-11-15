@@ -28,6 +28,7 @@ func (s *Server) httpHandler() http.Handler {
 	r.HandleFunc("/v1/contact/{idOrEmail}", s.handleDeleteContact).Methods(http.MethodDelete)
 	r.HandleFunc("/v1/contact", s.handleUpsertContact).Methods(http.MethodPost)
 	r.HandleFunc("/v1/contacts", s.handleListContact).Methods(http.MethodGet)
+	r.HandleFunc("/v1/contacts/{bookmark}", s.handleListContact).Methods(http.MethodGet)
 
 	//Passthrough all over requests
 	r.PathPrefix("/").HandlerFunc(s.be.ServeHTTP)
@@ -53,6 +54,8 @@ func (s *Server) authCheck(next http.Handler) http.Handler {
 }
 
 func (s *Server) handleProxyResponse(r *http.Response) error {
+	//Cache the response from the backend server
+
 	apiKey := r.Request.Header.Get(apiKeyHeader)
 
 	b, err := ioutil.ReadAll(r.Body)
@@ -60,12 +63,19 @@ func (s *Server) handleProxyResponse(r *http.Response) error {
 		return err
 	}
 
+	//Get contact
 	if strings.Index(r.Request.URL.Path, "/v1/contact/") == 0 && r.Request.Method == http.MethodGet {
 		s.cacheContact(apiKey, string(b))
 	}
 
+	//Upsert contact
 	if r.Request.URL.Path == "/v1/contact" && r.Request.Method == http.MethodPost {
 		s.cacheContact(apiKey, string(b))
+	}
+
+	//List contacts
+	if strings.Index(r.Request.URL.Path, "/v1/contacts") == 0 && r.Request.Method == http.MethodGet {
+		s.cacheList(r.Request, apiKey, string(b))
 	}
 
 	r.Body = ioutil.NopCloser(bytes.NewReader(b))
@@ -100,6 +110,28 @@ func (s *Server) cacheContact(apiKey string, body string) error {
 
 	//Add contact/person id alias
 	err = s.cache.Set(ctx, s.prefixKey(apiKey, id), cacheKey, cacheTTL)
+	if err != nil {
+		s.log.WithError(err).Error("failed to set contact key")
+		return err
+	}
+
+	return nil
+}
+
+func (s *Server) cacheList(r *http.Request, apiKey, body string) error {
+	//New ctx since outside of response routine
+	ctx := context.Background()
+
+	var bookmark string
+
+	if strings.Contains(r.URL.Path, "/contacts/person_") {
+		//is Bookmarked
+		bookmark = r.URL.Path[len("/v1/contacts/"):]
+	}
+
+	cacheKey := s.prefixKey(apiKey, fmt.Sprintf("lists:%s", bookmark))
+
+	err := s.cache.Set(ctx, cacheKey, body, cacheTTL)
 	if err != nil {
 		s.log.WithError(err).Error("failed to set contact key")
 		return err
@@ -199,11 +231,35 @@ func (s *Server) invalidateContact(ctx context.Context, apiKey string, idOrEmail
 		cacheKey = s.prefixKey(apiKey, idOrEmail)
 	}
 
-	return s.cache.Delete(ctx, cacheKey)
+	s.cache.Delete(ctx, cacheKey)
+
+	//Invalidate lists
+	s.cache.Delete(ctx, s.prefixKey(apiKey, "lists:*"))
+
+	return nil
 }
 
 func (s *Server) handleListContact(w http.ResponseWriter, r *http.Request) {
+	apiKey := r.Header.Get(apiKeyHeader)
+
+	vars := mux.Vars(r)
+	bookmark := vars["bookmark"]
+
+	//TODO(tcfw) validate bookmark format
+
+	cacheKey := s.prefixKey(apiKey, fmt.Sprintf("lists:%s", bookmark))
+	val, err := s.cache.Get(r.Context(), cacheKey)
+	if val == "" || err != nil {
+		goto passthrough
+	}
+
+	w.Header().Add("content-type", "application/json")
+	w.Write([]byte(val))
+
+	return
+
 	//passthrough
+passthrough:
 	s.be.ServeHTTP(w, r)
 }
 

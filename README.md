@@ -1,5 +1,7 @@
 # test-contactcache
 
+Caching middleware of contacts endpoints
+
 # Requirements
 
 - Go (>=1.15)

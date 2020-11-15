@@ -95,7 +95,7 @@ func TestHandleGetContact(t *testing.T) {
 
 	//Check matching
 	ce, _ := s.Get(mainCacheKey)
-	assert.Equal(t, contact+"\n", ce)
+	assert.Contains(t, ce, contact)
 
 	//check alias
 	ce, _ = s.Get(aliasCacheKey)
@@ -135,7 +135,7 @@ func TestHandleDeleteContact(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	//Backend should still have been called
+	//Backend should have been called
 	assert.Equal(t, 1, *beReqCount)
 
 	//Key should have been removed
@@ -168,7 +168,7 @@ func TestHandleUpsertContact(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	//Backend should still have been called
+	//Backend should have been called
 	assert.Equal(t, 1, *beReqCount)
 
 	//Cache value should exist
@@ -179,6 +179,44 @@ func TestHandleUpsertContact(t *testing.T) {
 
 	req, _ = http.NewRequest("GET", "https://anywhere.local/v1/contact/person_AP2-9cbf7ac0-eec5-11e4-87bc-6df09cc44d23", nil)
 	req.Header.Add(apiKeyHeader, apiKey)
+
+	handler.ServeHTTP(w, req)
+
+	//Backend should NOT have been called
+	assert.Equal(t, 1, *beReqCount)
+}
+
+func TestHandleListContact(t *testing.T) {
+	contactList := `{
+		"contacts": [
+			{
+				"contact_id": "person_AP2-9cbf7ac0-eec5-11e4-87bc-6df09cc44d23",
+				"FirstName": "Chris",
+				"LastName": "Sharkey"
+				"Email": "chris@autopilothq.com"
+			}
+		],
+		"total_contacts": 1
+	}`
+
+	srv, beReqCount, close, _ := setupTestServer(t, contactList)
+	defer close()
+
+	handler := srv.httpHandler()
+	w := httptest.NewRecorder()
+
+	apiKey := "1234"
+
+	req, err := http.NewRequest("GET", "https://anywhere.local/v1/contacts", nil)
+	if err != nil {
+		t.Fatal(t, err)
+	}
+	req.Header.Add(apiKeyHeader, apiKey)
+
+	handler.ServeHTTP(w, req)
+
+	//Backend should have been called
+	assert.Equal(t, 1, *beReqCount)
 
 	handler.ServeHTTP(w, req)
 
