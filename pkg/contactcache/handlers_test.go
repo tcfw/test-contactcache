@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAuthChec(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestAuthCheck(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "Hello")
 	}))
 	defer ts.Close()
@@ -38,7 +38,7 @@ func TestAuthChec(t *testing.T) {
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	assert.NotEqual(t, 200, w.Result().StatusCode)
+	assert.Equal(t, 200, w.Result().StatusCode)
 }
 
 func TestPrefixKey(t *testing.T) {
@@ -48,7 +48,7 @@ func TestPrefixKey(t *testing.T) {
 	req.Header.Add(apiKeyHeader, "1234")
 
 	key := srv.prefixKey(req, "4321")
-	assert.Equal(t, "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4:4321", key)
+	assert.Equal(t, "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4:contact:4321", key)
 }
 
 func TestIsPersonKey(t *testing.T) {

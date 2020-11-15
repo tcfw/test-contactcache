@@ -51,7 +51,18 @@ func (s *Server) handleProxyResponse(r *http.Response) error {
 }
 
 func (s *Server) handleGetContact(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	idOrEmail := vars["idOrEmail"]
 
+	if idOrEmail == "" {
+		//passthrough
+		s.be.ServeHTTP(w, r)
+		return
+	}
+
+	if s.isPersonKey(idOrEmail) {
+
+	}
 }
 
 func (s *Server) handleUpsertContact(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +79,7 @@ func (s *Server) handleListContact(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) prefixKey(r *http.Request, key string) string {
 	apiKey := r.Header.Get(apiKeyHeader)
-	return fmt.Sprintf("%x:%s", sha256.Sum256([]byte(apiKey)), key)
+	return fmt.Sprintf("%x:contact:%s", sha256.Sum256([]byte(apiKey)), key)
 }
 
 func (s *Server) isPersonKey(key string) bool {

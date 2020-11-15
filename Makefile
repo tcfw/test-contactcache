@@ -13,6 +13,6 @@ build:
 run: build
 	$(BUILD_DIR)/contactcache start
 
-.PHONY: tests
-tests:
+.PHONY: test
+test:
 	go test -v github.com/tcfw/test-contactcache/pkg/contactcache
