@@ -32,6 +32,7 @@ You can also pass configuration via env vars prefixed with CONTACTCACHE\_ (e.g. 
 - `address`: Address to listen on
 - `backend.address`: The backend server
 - `cache.address` The caching endpoint
+- `cache.password`: Redis password
 
 ## TLS Cert generation (self-signed)
 

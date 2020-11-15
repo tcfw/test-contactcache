@@ -1,8 +1,10 @@
 package contactcache
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 
 	"github.com/gorilla/handlers"
 	"github.com/sirupsen/logrus"
@@ -15,13 +17,35 @@ func NewServer() (*Server, error) {
 		log: logrus.New(),
 	}
 
+	//New up a redis endpoint
+	cache, err := NewRedisCache()
+	if err != nil {
+		return nil, err
+	}
+	srv.cache = cache
+
+	//Parse backend
+	backendAddress := viper.GetString("backend.address")
+	if backendAddress == "" {
+		return nil, fmt.Errorf("no backend endpoint provided")
+	}
+
+	backend, err := url.Parse(backendAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse backend URL: %s", err)
+	}
+
+	//Set backend reverse proxy
+	proxy := httputil.NewSingleHostReverseProxy(backend)
+	srv.be = proxy
+
 	return srv, nil
 }
 
 //Server primary content server
 type Server struct {
 	log   *logrus.Logger
-	be    httputil.ReverseProxy
+	be    *httputil.ReverseProxy
 	cache Cacher
 }
 
@@ -33,8 +57,7 @@ func (s *Server) Start() error {
 		return err
 	}
 
-	handler := httpHandler(s)
-
+	handler := s.httpHandler()
 	handler = handlers.LoggingHandler(s.log.Out, handler)
 
 	httpSrv := http.Server{

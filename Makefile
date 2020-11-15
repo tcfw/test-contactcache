@@ -11,7 +11,7 @@ build:
 
 .PHONY: run
 run: build
-	$(BUILD_DIR)/contactcache
+	$(BUILD_DIR)/contactcache start
 
 .PHONY: tests
 tests:

@@ -23,7 +23,9 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				panic(err)
 			}
-			srv.Start()
+			if err := srv.Start(); err != nil {
+				panic(err)
+			}
 		},
 	}
 
