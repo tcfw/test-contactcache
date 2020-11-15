@@ -64,6 +64,10 @@ func (s *Server) handleProxyResponse(r *http.Response) error {
 		s.cacheContact(apiKey, string(b))
 	}
 
+	if r.Request.URL.Path == "/v1/contact" && r.Request.Method == http.MethodPost {
+		s.cacheContact(apiKey, string(b))
+	}
+
 	r.Body = ioutil.NopCloser(bytes.NewReader(b))
 
 	return nil
@@ -72,6 +76,16 @@ func (s *Server) handleProxyResponse(r *http.Response) error {
 func (s *Server) cacheContact(apiKey string, body string) error {
 	//New ctx since outside of response routine
 	ctx := context.Background()
+
+	bulk := gjson.Get(body, "contacts").Array()
+
+	if len(bulk) != 0 {
+		for _, contact := range bulk {
+			s.cacheContact(apiKey, contact.Raw)
+		}
+
+		return nil
+	}
 
 	email := gjson.Get(body, "Email").String()
 	id := gjson.Get(body, "contact_id").String()
@@ -137,13 +151,55 @@ passthrough:
 }
 
 func (s *Server) handleUpsertContact(w http.ResponseWriter, r *http.Request) {
-	//passthrough
+	//Invalidate existing
+
+	apiKey := r.Header.Get(apiKeyHeader)
+
+	vars := mux.Vars(r)
+	idOrEmail := vars["idOrEmail"]
+
+	if err := s.invalidateContact(r.Context(), apiKey, idOrEmail); err != nil {
+		s.log.WithError(err).Error("failed to invalidate contact cache")
+	}
+
+	//passthrough to be cached
 	s.be.ServeHTTP(w, r)
 }
 
 func (s *Server) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
 	//passthrough
 	s.be.ServeHTTP(w, r)
+
+	//Invalidate cache
+
+	apiKey := r.Header.Get(apiKeyHeader)
+
+	vars := mux.Vars(r)
+	idOrEmail := vars["idOrEmail"]
+
+	if err := s.invalidateContact(r.Context(), apiKey, idOrEmail); err != nil {
+		s.log.WithError(err).Error("failed to invalidate contact cache")
+	}
+
+}
+
+func (s *Server) invalidateContact(ctx context.Context, apiKey string, idOrEmail string) error {
+	//Check if is a person key or email
+	var cacheKey string
+	if s.isPersonKey(idOrEmail) {
+		//Find the contact key for email
+		realKey, err := s.cache.Get(ctx, s.prefixKey(apiKey, idOrEmail))
+		if realKey == "" || err != nil {
+			//passthrough
+			return err
+		}
+
+		cacheKey = realKey
+	} else {
+		cacheKey = s.prefixKey(apiKey, idOrEmail)
+	}
+
+	return s.cache.Delete(ctx, cacheKey)
 }
 
 func (s *Server) handleListContact(w http.ResponseWriter, r *http.Request) {

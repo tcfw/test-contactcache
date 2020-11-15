@@ -8,8 +8,6 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -65,8 +63,6 @@ func TestAuthCheck(t *testing.T) {
 }
 
 func TestHandleGetContact(t *testing.T) {
-	var beReqCount int
-
 	contact := `{
 "contact_id": "person_AP2-9cbf7ac0-eec5-11e4-87bc-6df09cc44d23",
 "FirstName": "Chris",
@@ -74,35 +70,8 @@ func TestHandleGetContact(t *testing.T) {
 "Email": "chris@autopilothq.com"
 }`
 
-	//Spin up backend
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		beReqCount++
-		fmt.Fprintln(w, contact)
-	}))
-	defer ts.Close()
-
-	//Spin up cache
-	s, err := miniredis.Run()
-	if err != nil {
-		panic(err)
-	}
-	defer s.Close()
-	//Set config to test redis
-	viper.Set("cache.address", s.Addr())
-
-	cache, err := NewRedisCache()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	beURL, _ := url.Parse(ts.URL)
-	be := httputil.NewSingleHostReverseProxy(beURL)
-
-	srv := &Server{
-		be:    be,
-		cache: cache,
-	}
-	be.ModifyResponse = srv.handleProxyResponse
+	srv, beReqCount, close, s := setupTestServer(t, contact)
+	defer close()
 
 	handler := srv.httpHandler()
 	w := httptest.NewRecorder()
@@ -118,7 +87,7 @@ func TestHandleGetContact(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	//Check backend was called
-	assert.Equal(t, 1, beReqCount)
+	assert.Equal(t, 1, *beReqCount)
 
 	//Check cache entry made
 	mainCacheKey := srv.prefixKey(apiKey, "chris@autopilothq.com")
@@ -134,6 +103,85 @@ func TestHandleGetContact(t *testing.T) {
 
 	//Run again to use cached response
 	handler.ServeHTTP(w, req)
-	assert.Equal(t, 1, beReqCount)
+	assert.Equal(t, 1, *beReqCount)
 
+}
+
+func TestHandleDeleteContact(t *testing.T) {
+	contact := `{
+"contact_id": "person_AP2-9cbf7ac0-eec5-11e4-87bc-6df09cc44d23",
+"FirstName": "Chris",
+"LastName": "Sharkey"
+"Email": "chris@autopilothq.com"
+}`
+
+	srv, beReqCount, close, s := setupTestServer(t, contact)
+	defer close()
+
+	handler := srv.httpHandler()
+	w := httptest.NewRecorder()
+
+	apiKey := "1234"
+
+	cacheKey := srv.prefixKey(apiKey, "chris@autopilothq.com")
+
+	s.Set(cacheKey, contact)
+
+	req, err := http.NewRequest("DELETE", "https://anywhere.local/v1/contact/chris@autopilothq.com", nil)
+	if err != nil {
+		t.Fatal(t, err)
+	}
+	req.Header.Add(apiKeyHeader, apiKey)
+
+	handler.ServeHTTP(w, req)
+
+	//Backend should still have been called
+	assert.Equal(t, 1, *beReqCount)
+
+	//Key should have been removed
+	val, err := s.Get(cacheKey)
+
+	assert.Equal(t, "", val)
+}
+
+func TestHandleUpsertContact(t *testing.T) {
+	contact := `{
+"contact_id": "person_AP2-9cbf7ac0-eec5-11e4-87bc-6df09cc44d23",
+"FirstName": "Chris",
+"LastName": "Sharkey"
+"Email": "chris@autopilothq.com"
+}`
+
+	srv, beReqCount, close, s := setupTestServer(t, contact)
+	defer close()
+
+	handler := srv.httpHandler()
+	w := httptest.NewRecorder()
+
+	apiKey := "1234"
+
+	req, err := http.NewRequest("POST", "https://anywhere.local/v1/contact", nil)
+	if err != nil {
+		t.Fatal(t, err)
+	}
+	req.Header.Add(apiKeyHeader, apiKey)
+
+	handler.ServeHTTP(w, req)
+
+	//Backend should still have been called
+	assert.Equal(t, 1, *beReqCount)
+
+	//Cache value should exist
+	cacheKey := srv.prefixKey(apiKey, "chris@autopilothq.com")
+	val, err := s.Get(cacheKey)
+
+	assert.NotEqual(t, "", val)
+
+	req, _ = http.NewRequest("GET", "https://anywhere.local/v1/contact/person_AP2-9cbf7ac0-eec5-11e4-87bc-6df09cc44d23", nil)
+	req.Header.Add(apiKeyHeader, apiKey)
+
+	handler.ServeHTTP(w, req)
+
+	//Backend should NOT have been called
+	assert.Equal(t, 1, *beReqCount)
 }
