@@ -223,3 +223,7 @@ func TestHandleListContact(t *testing.T) {
 	//Backend should NOT have been called
 	assert.Equal(t, 1, *beReqCount)
 }
+
+func TestHandleUpsertThenList(t *testing.T) {
+	//TODO(tcfw) 
+}
