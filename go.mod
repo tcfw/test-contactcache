@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis v2.5.0+incompatible
 	github.com/alicebob/miniredis/v2 v2.14.1
 	github.com/go-redis/redis/v8 v8.3.3
-	github.com/gomodule/redigo v1.8.2 // indirect
+	github.com/gomodule/redigo v1.8.2
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
 	github.com/prometheus/client_golang v0.9.3

@@ -40,6 +40,7 @@ func NewServer() (*Server, error) {
 	//Set backend reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(backend)
 	srv.be = proxy
+	proxy.ModifyResponse = srv.handleProxyResponse
 
 	return srv, nil
 }

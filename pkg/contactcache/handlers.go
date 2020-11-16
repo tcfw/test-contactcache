@@ -2,9 +2,12 @@ package contactcache
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -18,7 +21,11 @@ const (
 	apiKeyHeader = "autopilotapikey"
 	noAPIKey     = `{"error":"Bad Request", "message": "No autopilotapikey header provided."}`
 
-	cacheTTL = 60 * time.Minute
+	cacheTTL = 5 * time.Minute
+)
+
+var (
+	errRedisNil = errors.New("redis: nil")
 )
 
 //httpHandler http mux for serving cached responses or passing through to backend
@@ -37,16 +44,10 @@ func (s *Server) httpHandler() http.Handler {
 	//Check for API key
 	r.Use(s.authCheck)
 
-	return r
-}
+	//Metrics
+	r.Use(s.metrics)
 
-//Metrics simple counter for requests
-func (s *Server) metrics(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sTime := time.Now()
-		next.ServeHTTP(w, r)
-		metricsRequests.Observe(float64(time.Since(sTime).Milliseconds()))
-	})
+	return r
 }
 
 //authCheck validates if a request contains an API key
@@ -66,6 +67,8 @@ func (s *Server) authCheck(next http.Handler) http.Handler {
 
 //handleProxyResponse copies the response from the backend and caches the responses accordingly
 func (s *Server) handleProxyResponse(r *http.Response) error {
+	s.log.Infof("RESP: %+v", r.Request.URL.Path)
+
 	//Only cache successful responses
 	if r.StatusCode != 200 {
 		return nil
@@ -74,7 +77,22 @@ func (s *Server) handleProxyResponse(r *http.Response) error {
 	//Cache the response from the backend server
 	apiKey := r.Request.Header.Get(apiKeyHeader)
 
-	b, err := ioutil.ReadAll(r.Body)
+	//Decode compressed responses
+	var reader io.ReadCloser
+	switch r.Header.Get("Content-Encoding") {
+	case "gzip":
+		var err error
+		reader, err = gzip.NewReader(r.Body)
+		if err != nil {
+			s.log.WithError(err).Error("failed to start decoding response")
+			return err
+		}
+		defer reader.Close()
+	default:
+		reader = r.Body
+	}
+
+	b, err := ioutil.ReadAll(reader)
 	if err != nil {
 		return err
 	}
@@ -95,7 +113,19 @@ func (s *Server) handleProxyResponse(r *http.Response) error {
 	}
 
 	//Rebuild the response body closer
-	r.Body = ioutil.NopCloser(bytes.NewReader(b))
+	var readerBack io.ReadCloser
+	switch r.Header.Get("Content-Encoding") {
+	case "gzip":
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		defer gz.Close()
+		gz.Write([]byte(b))
+		readerBack = ioutil.NopCloser(&buf)
+	default:
+		readerBack = ioutil.NopCloser(bytes.NewReader(b))
+	}
+
+	r.Body = readerBack
 
 	return nil
 }
@@ -161,6 +191,8 @@ func (s *Server) cacheList(r *http.Request, apiKey, body string) error {
 
 	cacheRequests.WithLabelValues("cache", "list").Add(1)
 
+	//TODO(tcfw) preemptive cache next page response
+
 	return nil
 }
 
@@ -183,22 +215,27 @@ func (s *Server) handleGetContact(w http.ResponseWriter, r *http.Request) {
 	if s.isPersonKey(idOrEmail) {
 		//Find the contact key for email
 		realKey, err := s.cache.Get(r.Context(), s.prefixKey(apiKey, idOrEmail))
-		if realKey == "" || err != nil {
-			//passthrough
+		if err != nil && err != errRedisNil {
+			s.log.WithError(err).Error("failed to get cache resp for alias")
+			goto passthrough
+		} else if realKey == "" {
 			goto passthrough
 		}
-
 		cacheKey = realKey
 	} else {
 		cacheKey = s.prefixKey(apiKey, idOrEmail)
 	}
 
 	val, err = s.cache.Get(r.Context(), cacheKey)
-	if err != nil || val == "" {
+	if err != nil && err != errRedisNil {
+		s.log.WithError(err).Error("failed to get cache resp for alias")
+		goto passthrough
+	} else if val == "" {
 		goto passthrough
 	}
 
 	w.Header().Add("content-type", "application/json")
+	w.Header().Add("cached", "yes")
 	w.Write([]byte(val))
 
 	cacheRequests.WithLabelValues("hit", "contact").Add(1)
@@ -252,7 +289,6 @@ func (s *Server) invalidateContact(ctx context.Context, apiKey string, idOrEmail
 		//Find the contact key for email
 		realKey, err := s.cache.Get(ctx, s.prefixKey(apiKey, idOrEmail))
 		if realKey == "" || err != nil {
-			//passthrough
 			return err
 		}
 
@@ -282,7 +318,10 @@ func (s *Server) handleListContact(w http.ResponseWriter, r *http.Request) {
 
 	cacheKey := s.prefixKey(apiKey, fmt.Sprintf("lists:%s", bookmark))
 	val, err := s.cache.Get(r.Context(), cacheKey)
-	if val == "" || err != nil {
+	if err != nil && err != errRedisNil {
+		s.log.WithError(err).Error("failed to get cache resp")
+		goto passthrough
+	} else if val == "" {
 		goto passthrough
 	}
 
@@ -293,7 +332,6 @@ func (s *Server) handleListContact(w http.ResponseWriter, r *http.Request) {
 
 	return
 
-	//passthrough
 passthrough:
 	cacheRequests.WithLabelValues("miss", "list").Add(1)
 	s.be.ServeHTTP(w, r)
