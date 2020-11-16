@@ -11,6 +11,12 @@ Caching middleware of contacts endpoints
 
 `make build` or simply `make` will compile the program and place the binary in ./build (or BUILD_DIR env var)
 
+### Container builds
+
+`make docker` will start building all targets in the Makefile for docker.
+
+NOTE: if buildah is installed, the pipeline will use buildah instead of docker
+
 ## Running testing
 
 `make test` will run all tests
@@ -35,6 +41,7 @@ You can also pass configuration via env vars prefixed with CONTACTCACHE\_ (e.g. 
 - `backend.address`: The backend server
 - `cache.address` The caching endpoint
 - `cache.password`: Redis password
+- `metrics.address`: Listening address for prometheus metrics
 
 ## TLS Cert generation (self-signed)
 
@@ -42,3 +49,7 @@ You can also pass configuration via env vars prefixed with CONTACTCACHE\_ (e.g. 
 
 Generating temporarily TLS certificates:
 `openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -x509 -nodes -days 365 -out cert.pem -keyout key.pem`
+
+## Sample K8S config
+
+See `./deployments/k8s/contactcache.yaml` for example configuration
