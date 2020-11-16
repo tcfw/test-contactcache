@@ -139,8 +139,7 @@ func TestHandleDeleteContact(t *testing.T) {
 	assert.Equal(t, 1, *beReqCount)
 
 	//Key should have been removed
-	val, err := s.Get(cacheKey)
-
+	val, _ := s.Get(cacheKey)
 	assert.Equal(t, "", val)
 }
 
@@ -173,8 +172,7 @@ func TestHandleUpsertContact(t *testing.T) {
 
 	//Cache value should exist
 	cacheKey := srv.prefixKey(apiKey, "chris@autopilothq.com")
-	val, err := s.Get(cacheKey)
-
+	val, _ := s.Get(cacheKey)
 	assert.NotEqual(t, "", val)
 
 	req, _ = http.NewRequest("GET", "https://anywhere.local/v1/contact/person_AP2-9cbf7ac0-eec5-11e4-87bc-6df09cc44d23", nil)
@@ -233,8 +231,7 @@ func TestBulkUpsertContacts(t *testing.T) {
 
 	//Cache value should exist
 	cacheKey := srv.prefixKey(apiKey, contactEmail)
-	val, err := s.Get(cacheKey)
-
+	val, _ := s.Get(cacheKey)
 	assert.NotEqual(t, "", val)
 
 	req, _ = http.NewRequest("GET", "https://anywhere.local/v1/contact/"+contactEmail, nil)

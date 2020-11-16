@@ -13,6 +13,8 @@ import (
 
 //NewServer creates a new instance of the middleware
 func NewServer() (*Server, error) {
+	defaultConfig()
+
 	srv := &Server{
 		log: logrus.New(),
 	}
@@ -68,6 +70,8 @@ func (s *Server) Start() error {
 
 	cert := viper.Get("tls.cert").(string)
 	key := viper.Get("tls.key").(string)
+
+	go s.startMetricsEndpoint()
 
 	s.log.Info("Starting HTTPs endpoint")
 

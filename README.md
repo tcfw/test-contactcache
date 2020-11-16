@@ -1,5 +1,7 @@
 # test-contactcache
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/tcfw/test-contactcache)](https://goreportcard.com/report/github.com/tcfw/test-contactcache)
+
 Caching middleware of contacts endpoints
 
 # Requirements
@@ -53,3 +55,10 @@ Generating temporarily TLS certificates:
 ## Sample K8S config
 
 See `./deployments/k8s/contactcache.yaml` for example configuration
+
+## Metrics
+
+By default, a seperate metrics server is exposed on port `9102` which provides the following additional metrics:
+
+- `requests`: histogram of requests through the middleware
+- `cache_requests`: hits, misses and cache sets (labels: "type" - caching action, "entity" cached entity e.g. contact or list response)

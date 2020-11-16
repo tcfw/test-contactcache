@@ -16,5 +16,7 @@ func httpJSONError(w http.ResponseWriter, msg string, code int) {
 		Message:   msg,
 	}
 
+	w.WriteHeader(code)
+
 	json.NewEncoder(w).Encode(err)
 }

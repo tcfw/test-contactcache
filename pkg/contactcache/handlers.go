@@ -53,11 +53,11 @@ func (s *Server) metrics(next http.Handler) http.Handler {
 func (s *Server) authCheck(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		//Basic check for API key existance
+		//Basic check for API key existence
 		//TODO(tcfw) pass to api key validator if no already checked by another middleware
 		if r.Header.Get(apiKeyHeader) == "" {
 			w.Header().Add("content-type", "application/json")
-			http.Error(w, noAPIKey, http.StatusBadRequest)
+			httpJSONError(w, "No autopilotapikey header provided.", http.StatusBadRequest)
 		} else {
 			next.ServeHTTP(w, r)
 		}
