@@ -12,14 +12,25 @@ import (
 	"github.com/spf13/viper"
 )
 
+//setupTestServer helper for setting up a mock backend and in-mem redis server with a single text response
 func setupTestServer(t *testing.T, resp string) (*Server, *int, func(), *miniredis.Miniredis) {
 	var beReqCount int
 
-	//Spin up backend
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		beReqCount++
 		fmt.Fprintln(w, resp)
-	}))
+	})
+
+	srv, closer, cache := setupTestServerHandleFunc(t, handler)
+
+	return srv, &beReqCount, closer, cache
+}
+
+//setupTestServer helper for setting up a mock backend and in-mem redis server passing through a
+//handler for complex/multiple response (e.g. via mutex)
+func setupTestServerHandleFunc(t *testing.T, handler http.HandlerFunc) (*Server, func(), *miniredis.Miniredis) {
+	//Spin up backend
+	ts := httptest.NewServer(handler)
 
 	//Spin up cache
 	s, err := miniredis.Run()
@@ -49,5 +60,5 @@ func setupTestServer(t *testing.T, resp string) (*Server, *int, func(), *minired
 		s.Close()
 	}
 
-	return srv, &beReqCount, closer, s
+	return srv, closer, s
 }

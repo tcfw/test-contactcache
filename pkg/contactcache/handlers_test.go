@@ -186,6 +186,66 @@ func TestHandleUpsertContact(t *testing.T) {
 	assert.Equal(t, 1, *beReqCount)
 }
 
+func TestBulkUpsertContacts(t *testing.T) {
+	contact := `{
+  "contacts": [
+    {
+      "FirstName": "Slarty",
+      "LastName": "Bartfast",
+      "Email": "test@slarty.com",
+      "custom": {
+        "string--Test--Field": "This is a test"
+      }
+    },
+    {
+      "FirstName": "Jerry",
+      "LastName": "Seinfeld",
+      "Email": "jerry@seinfeld.com"
+    },
+    {
+      "FirstName": "Elaine",
+      "LastName": "Benes",
+      "Email": "elaine@seinfeld.com"
+    }
+  ]
+}`
+
+	srv, beReqCount, close, s := setupTestServer(t, contact)
+	defer close()
+
+	handler := srv.httpHandler()
+	w := httptest.NewRecorder()
+
+	apiKey := "1234"
+
+	req, err := http.NewRequest("POST", "https://anywhere.local/v1/contact", nil)
+	if err != nil {
+		t.Fatal(t, err)
+	}
+	req.Header.Add(apiKeyHeader, apiKey)
+
+	handler.ServeHTTP(w, req)
+
+	//Backend should have been called
+	assert.Equal(t, 1, *beReqCount)
+
+	contactEmail := "jerry@seinfeld.com"
+
+	//Cache value should exist
+	cacheKey := srv.prefixKey(apiKey, contactEmail)
+	val, err := s.Get(cacheKey)
+
+	assert.NotEqual(t, "", val)
+
+	req, _ = http.NewRequest("GET", "https://anywhere.local/v1/contact/"+contactEmail, nil)
+	req.Header.Add(apiKeyHeader, apiKey)
+
+	handler.ServeHTTP(w, req)
+
+	//Backend should NOT have been called
+	assert.Equal(t, 1, *beReqCount)
+}
+
 func TestHandleListContact(t *testing.T) {
 	contactList := `{
 		"contacts": [
@@ -225,5 +285,5 @@ func TestHandleListContact(t *testing.T) {
 }
 
 func TestHandleUpsertThenList(t *testing.T) {
-	//TODO(tcfw) 
+	//TODO(tcfw)
 }
