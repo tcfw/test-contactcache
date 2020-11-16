@@ -21,6 +21,7 @@ const (
 	cacheTTL = 60 * time.Minute
 )
 
+//httpHandler http mux for serving cached responses or passing through to backend
 func (s *Server) httpHandler() http.Handler {
 	r := mux.NewRouter()
 
@@ -39,6 +40,16 @@ func (s *Server) httpHandler() http.Handler {
 	return r
 }
 
+//Metrics simple counter for requests
+func (s *Server) metrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sTime := time.Now()
+		next.ServeHTTP(w, r)
+		metricsRequests.Observe(float64(time.Since(sTime).Milliseconds()))
+	})
+}
+
+//authCheck validates if a request contains an API key
 func (s *Server) authCheck(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -53,9 +64,14 @@ func (s *Server) authCheck(next http.Handler) http.Handler {
 	})
 }
 
+//handleProxyResponse copies the response from the backend and caches the responses accordingly
 func (s *Server) handleProxyResponse(r *http.Response) error {
-	//Cache the response from the backend server
+	//Only cache successful responses
+	if r.StatusCode != 200 {
+		return nil
+	}
 
+	//Cache the response from the backend server
 	apiKey := r.Request.Header.Get(apiKeyHeader)
 
 	b, err := ioutil.ReadAll(r.Body)
@@ -78,17 +94,20 @@ func (s *Server) handleProxyResponse(r *http.Response) error {
 		s.cacheList(r.Request, apiKey, string(b))
 	}
 
+	//Rebuild the response body closer
 	r.Body = ioutil.NopCloser(bytes.NewReader(b))
 
 	return nil
 }
 
+//cacheContact caches a bulk list of contacts or a simple contact
 func (s *Server) cacheContact(apiKey string, body string) error {
 	//New ctx since outside of response routine
 	ctx := context.Background()
 
 	bulk := gjson.Get(body, "contacts").Array()
 
+	//If is bulk
 	if len(bulk) != 0 {
 		for _, contact := range bulk {
 			s.cacheContact(apiKey, contact.Raw)
@@ -102,6 +121,7 @@ func (s *Server) cacheContact(apiKey string, body string) error {
 
 	cacheKey := s.prefixKey(apiKey, email)
 
+	//Cache response
 	err := s.cache.Set(ctx, cacheKey, body, cacheTTL)
 	if err != nil {
 		s.log.WithError(err).Error("failed to set contact key")
@@ -115,6 +135,8 @@ func (s *Server) cacheContact(apiKey string, body string) error {
 		return err
 	}
 
+	cacheRequests.WithLabelValues("cache", "contact").Add(1)
+
 	return nil
 }
 
@@ -124,22 +146,25 @@ func (s *Server) cacheList(r *http.Request, apiKey, body string) error {
 
 	var bookmark string
 
+	//is Bookmarked
 	if strings.Contains(r.URL.Path, "/contacts/person_") {
-		//is Bookmarked
 		bookmark = r.URL.Path[len("/v1/contacts/"):]
 	}
 
+	//Cache listing response
 	cacheKey := s.prefixKey(apiKey, fmt.Sprintf("lists:%s", bookmark))
-
 	err := s.cache.Set(ctx, cacheKey, body, cacheTTL)
 	if err != nil {
 		s.log.WithError(err).Error("failed to set contact key")
 		return err
 	}
 
+	cacheRequests.WithLabelValues("cache", "list").Add(1)
+
 	return nil
 }
 
+//handleGetContact provides a cached contact or passes through to be cached on response
 func (s *Server) handleGetContact(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	idOrEmail := vars["idOrEmail"]
@@ -176,12 +201,16 @@ func (s *Server) handleGetContact(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("content-type", "application/json")
 	w.Write([]byte(val))
 
+	cacheRequests.WithLabelValues("hit", "contact").Add(1)
+
 	return
 
 passthrough:
+	cacheRequests.WithLabelValues("miss", "contact").Add(1)
 	s.be.ServeHTTP(w, r)
 }
 
+//handleUpsertContact invalidates cached contacts before passing through to the backend
 func (s *Server) handleUpsertContact(w http.ResponseWriter, r *http.Request) {
 	//Invalidate existing
 
@@ -198,12 +227,12 @@ func (s *Server) handleUpsertContact(w http.ResponseWriter, r *http.Request) {
 	s.be.ServeHTTP(w, r)
 }
 
+//handleDeleteContact passes through to backend before invalidating the cached contact
 func (s *Server) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
 	//passthrough
 	s.be.ServeHTTP(w, r)
 
 	//Invalidate cache
-
 	apiKey := r.Header.Get(apiKeyHeader)
 
 	vars := mux.Vars(r)
@@ -215,6 +244,7 @@ func (s *Server) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
 
 }
 
+//InvalidateContact clears the cache of both the alias and primary contact cache entry
 func (s *Server) invalidateContact(ctx context.Context, apiKey string, idOrEmail string) error {
 	//Check if is a person key or email
 	var cacheKey string
@@ -232,13 +262,16 @@ func (s *Server) invalidateContact(ctx context.Context, apiKey string, idOrEmail
 	}
 
 	s.cache.Delete(ctx, cacheKey)
+	cacheRequests.WithLabelValues("invalidate", "contact").Add(1)
 
-	//Invalidate lists
+	//Invalidate lists responses
 	s.cache.Delete(ctx, s.prefixKey(apiKey, "lists:*"))
+	cacheRequests.WithLabelValues("invalidate", "list").Add(1)
 
 	return nil
 }
 
+//handleListContact response with cached list responses based on the bookmark
 func (s *Server) handleListContact(w http.ResponseWriter, r *http.Request) {
 	apiKey := r.Header.Get(apiKeyHeader)
 
@@ -256,17 +289,22 @@ func (s *Server) handleListContact(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("content-type", "application/json")
 	w.Write([]byte(val))
 
+	cacheRequests.WithLabelValues("hit", "list").Add(1)
+
 	return
 
 	//passthrough
 passthrough:
+	cacheRequests.WithLabelValues("miss", "list").Add(1)
 	s.be.ServeHTTP(w, r)
 }
 
+//prefixKey prefixes a given key with a hashed api Key
 func (s *Server) prefixKey(apiKey string, key string) string {
 	return fmt.Sprintf("%x:contact:%s", sha256.Sum256([]byte(apiKey)), key)
 }
 
+//isPersonkey checks if the given key is an email or an ID
 func (s *Server) isPersonKey(key string) bool {
 	return strings.Contains(key, "person_") && !strings.Contains(key, "@")
 }

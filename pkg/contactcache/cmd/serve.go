@@ -32,10 +32,12 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().String("tls-key", "", "TLS key")
 	cmd.Flags().String("tls-cert", "", "TLS cert")
 	cmd.Flags().StringP("listen", "l", ":443", "Listening address")
+	cmd.Flags().String("metrics-listen", ":9102", "Metrics listening address")
 
 	viper.BindPFlag("tls.key", cmd.Flags().Lookup("tls-key"))
 	viper.BindPFlag("tls.cert", cmd.Flags().Lookup("tls-cert"))
 	viper.BindPFlag("address", cmd.Flags().Lookup("listen"))
+	viper.BindPFlag("metrics.address", cmd.Flags().Lookup("metrics-listen"))
 
 	return cmd
 }
