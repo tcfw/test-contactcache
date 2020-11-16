@@ -3,6 +3,7 @@ package contactcache
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -55,5 +56,17 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (string, error) {
 
 //Delete removes a value by key
 func (rc *RedisCache) Delete(ctx context.Context, key string) error {
+	if strings.Contains(key, "*") {
+		return rc.deletePrefix(ctx, key)
+	}
 	return rc.rdb.Del(ctx, key).Err()
+}
+
+func (rc *RedisCache) deletePrefix(ctx context.Context, pattern string) error {
+	keys, err := rc.rdb.Keys(ctx, pattern).Result()
+	if err != nil {
+		return err
+	}
+
+	return rc.rdb.Del(ctx, keys...).Err()
 }

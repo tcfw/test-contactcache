@@ -35,19 +35,28 @@ func TestRedisCache(t *testing.T) {
 		//Set key
 		err = cache.Set(ctx, key, "bar", 1*time.Minute)
 		if err != nil {
-			t.Fatal(t, err)
+			t.Fatal(err)
 		}
 
 		//Get key again
 		resp, err = cache.Get(ctx, key)
 		if err != nil {
-			t.Fatal(t, err)
+			t.Fatal(err)
 		}
 		assert.Equal(t, "bar", resp)
 
 		err = cache.Delete(ctx, key)
 		if err != nil {
-			t.Fatal(t, err)
+			t.Fatal(err)
 		}
+
+		//Delete prefixes
+		cache.Set(ctx, key, "bar", 1*time.Minute)
+		err = cache.Delete(ctx, "f*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, _ = cache.Get(ctx, key)
+		assert.Equal(t, "", resp)
 	}
 }

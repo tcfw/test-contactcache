@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -52,6 +53,7 @@ func setupTestServerHandleFunc(t *testing.T, handler http.HandlerFunc) (*Server,
 	srv := &Server{
 		be:    be,
 		cache: cache,
+		log:   logrus.New(),
 	}
 	be.ModifyResponse = srv.handleProxyResponse
 

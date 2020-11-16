@@ -80,7 +80,7 @@ func TestHandleGetContact(t *testing.T) {
 
 	req, err := http.NewRequest("GET", "https://anywhere.local/v1/contact/chris@autopilothq.com", nil)
 	if err != nil {
-		t.Fatal(t, err)
+		t.Fatal(err)
 	}
 	req.Header.Add(apiKeyHeader, apiKey)
 
@@ -129,7 +129,7 @@ func TestHandleDeleteContact(t *testing.T) {
 
 	req, err := http.NewRequest("DELETE", "https://anywhere.local/v1/contact/chris@autopilothq.com", nil)
 	if err != nil {
-		t.Fatal(t, err)
+		t.Fatal(err)
 	}
 	req.Header.Add(apiKeyHeader, apiKey)
 
@@ -161,7 +161,7 @@ func TestHandleUpsertContact(t *testing.T) {
 
 	req, err := http.NewRequest("POST", "https://anywhere.local/v1/contact", nil)
 	if err != nil {
-		t.Fatal(t, err)
+		t.Fatal(err)
 	}
 	req.Header.Add(apiKeyHeader, apiKey)
 
@@ -218,7 +218,7 @@ func TestBulkUpsertContacts(t *testing.T) {
 
 	req, err := http.NewRequest("POST", "https://anywhere.local/v1/contact", nil)
 	if err != nil {
-		t.Fatal(t, err)
+		t.Fatal(err)
 	}
 	req.Header.Add(apiKeyHeader, apiKey)
 
@@ -266,7 +266,7 @@ func TestHandleListContact(t *testing.T) {
 
 	req, err := http.NewRequest("GET", "https://anywhere.local/v1/contacts", nil)
 	if err != nil {
-		t.Fatal(t, err)
+		t.Fatal(err)
 	}
 	req.Header.Add(apiKeyHeader, apiKey)
 
@@ -282,5 +282,43 @@ func TestHandleListContact(t *testing.T) {
 }
 
 func TestHandleUpsertThenList(t *testing.T) {
-	//TODO(tcfw)
+	contactList := `{
+		"contacts": [
+		],
+		"total_contacts": 1
+	}`
+
+	contact := `{
+		"contact_id": "person_AP2-9cbf7ac0-eec5-11e4-87bc-6df09cc44d23",
+		"FirstName": "Chris",
+		"LastName": "Sharkey"
+		"Email": "chris@autopilothq.com"
+	}`
+
+	srv, beReqCount, close, s := setupTestServer(t, contact)
+	defer close()
+
+	apiKey := "1234"
+
+	//Setup existing cache
+	listCacheKey := srv.prefixKey(apiKey, "lists:")
+	s.Set(listCacheKey, contactList)
+
+	req, err := http.NewRequest("POST", "https://anywhere.local/v1/contact", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add(apiKeyHeader, apiKey)
+
+	handler := srv.httpHandler()
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	//Backend should have been called
+	assert.Equal(t, 1, *beReqCount)
+
+	//Cache should have invalidated
+	val, _ := s.Get(listCacheKey)
+	assert.Equal(t, "", val)
 }
